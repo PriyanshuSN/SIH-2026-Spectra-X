@@ -12,8 +12,22 @@ import tempfile
 import rasterio
 from src.ingestion.preprocess import load_sentinel2_bands, normalize
 from src.ingestion.tiler import tile_image
-from src.model.train import create_training_pair
 import numpy as np
+import cv2
+
+def create_training_pair(hr_patch: np.ndarray, scale_factor: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Simulates medium-resolution input by downsampling and applying slight blur.
+    In a real dataset like WorldStrat, LR and HR are physically distinct images.
+    """
+    C, H, W = hr_patch.shape
+    lr_patch = np.zeros((C, H // scale_factor, W // scale_factor), dtype=np.float32)
+    
+    for i in range(C):
+        # Downsample by scale_factor using INTER_AREA to simulate lower sensor resolution
+        lr_patch[i] = cv2.resize(hr_patch[i], (W // scale_factor, H // scale_factor), interpolation=cv2.INTER_AREA)
+        
+    return lr_patch, hr_patch
 
 def process_zip_file(zip_path: str, extract_dir: str):
     """Finds and stacks B02, B03, B04, B08 from a Sentinel-2 ZIP into a (4, H, W) array."""
