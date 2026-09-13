@@ -31,7 +31,7 @@ def run_training_loop():
     print(f"Using Python: {python_exe}\n")
     
     # Configure training run
-    epochs = 200      # Total epochs to run overnight
+    epochs = 800      # Total epochs to run overnight
     batch_size = 16   # Max out the 8GB RTX 5050 VRAM for faster training
     
     cmd = [
