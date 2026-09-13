@@ -114,7 +114,13 @@ def train(
 
             with torch.amp.autocast("cuda", enabled=(device == "cuda")):
                 sr_output = model(lr_patches)
-                loss = criterion(sr_output, hr_patches)
+
+                # Crop hr_patches to match sr_output dimensions perfectly
+                # (Fixes the 256 vs 255 pixel rounding error from scale_factor=3)
+                _, _, sH, sW = sr_output.shape
+                hr_patches_cropped = hr_patches[:, :, :sH, :sW]
+
+                loss = criterion(sr_output, hr_patches_cropped)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
