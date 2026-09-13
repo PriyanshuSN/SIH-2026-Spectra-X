@@ -324,7 +324,7 @@ def build_model(config: dict | None = None) -> SwinIRLite:
         "in_channels": 4,
         "embed_dim": 60,
         "num_heads": 4,
-        "num_rstb": 7,  # Upgraded to 1.54M parameters!
+        "num_rstb": 4,
         "depth_per_rstb": 4,
         "window_size": 8,
         "scale_factor": 3,
