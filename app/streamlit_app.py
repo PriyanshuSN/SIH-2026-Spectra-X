@@ -280,6 +280,31 @@ if st.session_state.input_data is not None:
                 )
 
             st.divider()
+            
+            # === RAW PIXEL ZOOM COMPARISON ===
+            st.header("Raw Pixel Comparison (1:1 Scale)")
+            st.markdown("Because web browsers automatically shrink massive images to fit the screen, it can look like the resolution didn't change. Here is a raw 1:1 pixel crop from the exact center of both files to prove the physical resolution multiplier.")
+            
+            # Crop the center 150x150 of the LR image
+            w, h = img_lr.size
+            cx, cy = w // 2, h // 2
+            crop_lr = img_lr.crop((cx - 75, cy - 75, cx + 75, cy + 75))
+            
+            # Crop the corresponding center 450x450 of the SR image (3x scale)
+            sw, sh = img_sr.size
+            scx, scy = sw // 2, sh // 2
+            crop_sr = img_sr.crop((scx - 225, scy - 225, scx + 225, scy + 225))
+            
+            col_z1, col_z2 = st.columns(2)
+            with col_z1:
+                st.caption(f"Original Crop (150x150 pixels)")
+                # use_container_width=False forces it to show raw pixels
+                st.image(crop_lr, use_container_width=False)
+            with col_z2:
+                st.caption(f"SpectraX Crop (450x450 pixels) — Physically 3x larger")
+                st.image(crop_sr, use_container_width=False)
+
+            st.divider()
 
             # === 2. NTRO METRICS (Premium Layout) ===
             st.header("3. NTRO Verification Dashboard")

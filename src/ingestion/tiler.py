@@ -83,6 +83,14 @@ def untile_image(
     output = np.zeros((C, out_H, out_W), dtype=np.float32)
     counts = np.zeros((1, out_H, out_W), dtype=np.float32)
 
+    # Create a 2D Bartlett (triangular) blending window for seamless stitching
+    def get_blending_mask(h, w):
+        mask_y = np.bartlett(h)
+        mask_x = np.bartlett(w)
+        mask_2d = np.outer(mask_y, mask_x)
+        # Add a tiny epsilon to prevent zero division
+        return mask_2d + 1e-5
+
     for p in patches:
         r = p["row"] * scale_factor
         c = p["col"] * scale_factor
@@ -90,11 +98,12 @@ def untile_image(
         pw = p["orig_w"] * scale_factor
         patch = p["patch"][:, :ph, :pw]
 
-        output[:, r : r + ph, c : c + pw] += patch
-        counts[:, r : r + ph, c : c + pw] += 1.0
+        mask = get_blending_mask(ph, pw)[np.newaxis, ...]
 
-    # Average overlapping regions
-    counts = np.maximum(counts, 1.0)
+        output[:, r : r + ph, c : c + pw] += patch * mask
+        counts[:, r : r + ph, c : c + pw] += mask
+
+    # Normalize by the accumulated blending mask weights
     output /= counts
 
     return output

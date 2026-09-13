@@ -41,6 +41,12 @@ def process_bulk_data():
         
         for p in patches:
             hr_patch = p["patch"]
+            
+            # Check for NoData/Black regions (if more than 50% of the patch is 0)
+            zero_ratio = np.sum(hr_patch == 0) / hr_patch.size
+            if zero_ratio > 0.5:
+                continue  # Skip this patch entirely
+                
             # Create synthetic degradation (or load real HR pairs if using WorldStrat)
             lr_patch, hr_patch = create_training_pair(hr_patch, scale_factor=3)
             
