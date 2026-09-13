@@ -8,155 +8,184 @@ and self-consistency verification.
 
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 import torch
+from streamlit_image_comparison import image_comparison
+from PIL import Image
 
 from src.api.inference import load_model, run_inference
 from src.ingestion.preprocess import load_sentinel2_bands, normalize
 
-# Page setup
+# --- Page Setup ---
 st.set_page_config(
-    page_title="SpectraX SRM — NTRO Super Resolution",
+    page_title="SpectraX SRM | NTRO",
     page_icon="🛰️",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("🛰️ SpectraX — Super Resolution Mapping (SRM)")
-st.markdown(
-    "Deep Learning-based Super Resolution of Medium-Resolution Satellite Imagery (<4m) "
-    "with **Anti-Hallucination Verification** and **Pixel-Level Uncertainty**."
-)
+# Custom CSS for Premium Look
+st.markdown("""
+    <style>
+    .main { background-color: #0E1117; }
+    h1 { color: #4DA8DA; font-weight: 700; }
+    h2, h3 { color: #E0E6ED; font-weight: 400; }
+    .stAlert { border-radius: 8px; }
+    .metric-card { 
+        background: #1E2329; padding: 15px; border-radius: 8px; 
+        border-left: 4px solid #4DA8DA; margin-bottom: 15px;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 
+# --- Caching ---
 @st.cache_resource
 def get_model(ckpt_path: str, device: str):
     return load_model(ckpt_path, device=device)
 
+def extract_bands_from_zip(zip_path: str, extract_dir: str):
+    """Finds B02, B03, B04, B08 inside a ZIP and extracts them."""
+    extracted_files = {}
+    band_mapping = {"B02": 0, "B03": 1, "B04": 2, "B08": 3}
+    
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        for file_info in zip_ref.filelist:
+            if file_info.filename.endswith(('.tif', '.tiff', '.jp2')):
+                for band_name in band_mapping.keys():
+                    # Look for band name in the filename (e.g. T43PFP_20240101_B02.jp2)
+                    if f"_{band_name}" in file_info.filename or file_info.filename.endswith(f"{band_name}.tif"):
+                        # Extract it
+                        zip_ref.extract(file_info, extract_dir)
+                        extracted_files[band_mapping[band_name]] = os.path.join(extract_dir, file_info.filename)
+                        break
+    return extracted_files
 
-# --- Device & Checkpoint Setup ---
-device = "cuda" if torch.cuda.is_available() else "cpu"
-default_ckpt = "checkpoints/swinir_epoch050.pth"
-
-with st.sidebar:
-    st.header("⚙️ Model & Hardware")
-    st.info(f"**Compute Device:** `{device.upper()}` " + (f"({torch.cuda.get_device_name(0)})" if device == "cuda" else ""))
-
-    # List available checkpoints
-    ckpt_files = sorted(Path("checkpoints").glob("*.pth"), key=os.path.getmtime, reverse=True)
-    ckpt_options = [str(p) for p in ckpt_files] if ckpt_files else [default_ckpt]
-    selected_ckpt = st.selectbox("Model Checkpoint", ckpt_options, index=0)
-
-    st.divider()
-    st.header("🔬 Inference Controls")
-    n_passes = st.slider("MC-Dropout Passes", min_value=2, max_value=16, value=4, step=2)
-    scale_factor = st.selectbox("Scale Factor", [3], index=0)
-    consistency_threshold = st.slider("Consistency Pass Threshold", 0.70, 0.99, 0.85, 0.01)
-
-    st.divider()
-    st.markdown("""
-    ### 📐 NTRO Verification Metrics
-    - **PSNR (>30 dB):** Signal fidelity.
-    - **SSIM (>0.85):** Structural preservation.
-    - **SAM (<5.0°):** Spectral colour fidelity.
-    - **Edge F1 (>0.70):** Geographic edge coherence.
-    - **Hallucination Rate (<0.30):** Fabricated detail test.
-    """)
-
-
-def bands_to_rgb(img_bands: np.ndarray) -> np.ndarray:
-    """Converts (4, H, W) or (3, H, W) normalized satellite data to (H, W, 3) uint8 RGB."""
-    # Sentinel-2 bands order in our pipeline: 0: Blue, 1: Green, 2: Red, 3: NIR
+def bands_to_rgb(img_bands: np.ndarray) -> Image.Image:
+    """Converts (4, H, W) normalized array to a PIL Image (uint8 RGB) for display."""
     if img_bands.shape[0] >= 3:
-        r = img_bands[2]
-        g = img_bands[1]
-        b = img_bands[0]
-        rgb = np.stack([r, g, b], axis=-1)
+        rgb = np.stack([img_bands[2], img_bands[1], img_bands[0]], axis=-1)
     else:
         rgb = np.repeat(img_bands[0:1], 3, axis=0).transpose(1, 2, 0)
 
-    # 2% - 98% percentile contrast stretch for natural satellite visualization
+    # Contrast stretch for vibrant colors
     p2, p98 = np.percentile(rgb, (2, 98))
-    rgb_stretched = (rgb - p2) / (p98 - p2 + 1e-8)
-    rgb_stretched = np.clip(rgb_stretched, 0.0, 1.0)
-    return (rgb_stretched * 255).astype(np.uint8)
+    rgb_st = (rgb - p2) / (p98 - p2 + 1e-8)
+    rgb_st = np.clip(rgb_st, 0.0, 1.0)
+    
+    return Image.fromarray((rgb_st * 255).astype(np.uint8))
 
 
-# --- Data Selection ---
-st.header("1. Select Satellite Imagery")
+# --- Sidebar ---
+with st.sidebar:
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/ISRO_Logo.svg/200px-ISRO_Logo.svg.png", width=80)
+    st.title("⚙️ Control Panel")
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    st.success(f"**Hardware:** `{device.upper()}` " + (f"({torch.cuda.get_device_name(0)})" if device == "cuda" else ""))
 
-tab1, tab2 = st.tabs(["🚀 Demo Pune Tile (Pre-loaded)", "📤 Upload Custom Image"])
+    # Checkpoint
+    ckpt_files = sorted(Path("checkpoints").glob("*.pth"), key=os.path.getmtime, reverse=True)
+    ckpt_options = [str(p) for p in ckpt_files] if ckpt_files else ["checkpoints/swinir_epoch025.pth"]
+    selected_ckpt = st.selectbox("Model Weights", ckpt_options, index=0)
+
+    st.divider()
+    st.subheader("Inference Settings")
+    n_passes = st.slider("Uncertainty Passes (MC-Dropout)", 2, 16, 4, 2)
+    consistency_threshold = st.slider("Consistency Threshold", 0.70, 0.99, 0.85, 0.01)
+    
+    st.divider()
+    st.info("SpectraX SRM leverages an RTX-accelerated SwinIR-Lite backbone with global skip connections.")
+
+
+# --- Main Header ---
+st.title("🛰️ SpectraX — Super Resolution Mapping")
+st.markdown("Transform blurry 10m/pixel satellite data into sharp, tactically actionable <4m/pixel imagery.")
+
+# --- Data Input ---
+st.header("1. Upload Satellite Data")
+
+tab_demo, tab_upload, tab_zip = st.tabs(["🚀 Quick Demo", "🖼️ Upload Image (JPG/PNG/TIF)", "🗂️ Upload Copernicus ZIP"])
 
 input_data = None
 ref_data = None
 sample_name = ""
 
-with tab1:
-    st.markdown("Instantly evaluate the model on pre-processed Sentinel-2 Pune tiles.")
-    if st.button("Load Pune Tile Patch 00", type="primary"):
+with tab_demo:
+    st.markdown("Test the engine instantly using pre-processed data from Pune (Patch 0000).")
+    if st.button("Load Demo (Pune Tile)", type="primary"):
         lr_sample = "data/processed/lr/patch_0000.npy"
         hr_sample = "data/processed/hr/patch_0000.npy"
         if os.path.exists(lr_sample) and os.path.exists(hr_sample):
             input_data = np.load(lr_sample)
             ref_data = np.load(hr_sample)
-            sample_name = "Pune Tile (Patch 0000)"
+            sample_name = "Demo: Pune (Patch 0000)"
             st.session_state["input_data"] = input_data
             st.session_state["ref_data"] = ref_data
             st.session_state["sample_name"] = sample_name
         else:
-            st.error("Sample patches not found in data/processed/. Run dataset generation first.")
+            st.error("Demo files not found!")
 
-with tab2:
-    col_up1, col_up2 = st.columns(2)
-    with col_up1:
-        up_file = st.file_uploader("Upload Input (TIFF, PNG, JPG)", type=["tif", "tiff", "png", "jpg", "jpeg"])
-    with col_up2:
-        ref_file = st.file_uploader("Upload Reference/Ground Truth (Optional)", type=["tif", "tiff", "png", "jpg", "jpeg"])
-
+with tab_upload:
+    st.markdown("Upload any standard image. SpectraX handles missing infrared bands automatically.")
+    up_file = st.file_uploader("Input Image", type=["tif", "tiff", "png", "jpg", "jpeg"])
     if up_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(up_file.name).suffix) as tmp:
             tmp.write(up_file.read())
-            tmp_path = tmp.name
-        data, _ = load_sentinel2_bands(tmp_path)
-        input_data = normalize(data, method="percentile")
-        sample_name = up_file.name
-        st.session_state["input_data"] = input_data
-        st.session_state["sample_name"] = sample_name
+            data, _ = load_sentinel2_bands(tmp.name)
+            input_data = normalize(data, method="percentile")
+            sample_name = up_file.name
+            st.session_state["input_data"] = input_data
+            st.session_state["ref_data"] = None
+            st.session_state["sample_name"] = sample_name
 
-        if ref_file:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(ref_file.name).suffix) as tmp_ref:
-                tmp_ref.write(ref_file.read())
-                tmp_ref_path = tmp_ref.name
-            ref_d, _ = load_sentinel2_bands(tmp_ref_path)
-            ref_data = normalize(ref_d, method="percentile")
-            st.session_state["ref_data"] = ref_data
+with tab_zip:
+    st.markdown("Upload a raw `.zip` file from the Copernicus Data Space. We will extract the exact spectral bands needed.")
+    zip_file = st.file_uploader("Upload Copernicus ZIP", type=["zip"])
+    if zip_file:
+        with st.spinner("Extracting multi-spectral bands..."):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zip_path = os.path.join(tmpdir, "upload.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(zip_file.read())
+                
+                extracted = extract_bands_from_zip(zip_path, tmpdir)
+                if len(extracted) > 0:
+                    st.success(f"Successfully extracted {len(extracted)} spectral bands!")
+                    # In a full implementation, we'd stack these. For the UI placeholder, we'll request JPG for now.
+                    st.info("ZIP Extraction successful! (Full stacking pipeline to be connected). Use Image Upload for now.")
+                else:
+                    st.error("Could not find standard B02, B03, B04, B08 bands in this zip.")
 
-# Restore session state if available
+# Restore session state
 if "input_data" in st.session_state and input_data is None:
     input_data = st.session_state["input_data"]
     ref_data = st.session_state.get("ref_data", None)
-    sample_name = st.session_state.get("sample_name", "Selected Sample")
+    sample_name = st.session_state.get("sample_name", "")
 
-# --- Execute Inference ---
+
+# --- Inference & Results ---
 if input_data is not None:
     st.divider()
-    st.subheader(f"Analyzing: {sample_name}")
+    st.subheader(f"Current Target: `{sample_name}`")
 
     if not os.path.exists(selected_ckpt):
-        st.error(f"Checkpoint `{selected_ckpt}` not found. Please verify your checkpoints directory.")
+        st.error("Model weights not found. Please train the model first.")
     else:
-        with st.spinner("Running Super Resolution & Anti-Hallucination Verification on GPU..."):
+        with st.spinner("Initializing Deep Neural Network..."):
             model = get_model(selected_ckpt, device=device)
             results = run_inference(
                 model=model,
                 input_image=input_data,
                 reference_image=ref_data,
                 n_uncertainty_passes=n_passes,
-                scale_factor=scale_factor,
-                patch_size=128 if input_data.shape[1] <= 128 else 256,
+                scale_factor=3,
+                patch_size=256,
                 device=device,
             )
 
@@ -166,71 +195,81 @@ if input_data is not None:
         consistency = results["consistency"]
         metrics = results["metrics"]
 
-        # === 1. TRIPTYCH COMPARISON ===
-        st.header("2. Triptych Geographic Reconstruction")
-        st.caption("Proves authentic feature reconstruction (roads, buildings, agricultural boundaries).")
+        # === 1. INTERACTIVE SWIPE SLIDER ===
+        st.header("2. Interactive Enhancement Viewer")
+        st.caption("Drag the slider left and right to compare the original 10m resolution to SpectraX's <4m resolution.")
+        
+        # Convert arrays to PIL Images for the slider
+        img_lr = bands_to_rgb(input_data)
+        img_sr = bands_to_rgb(sr_output)
 
-        t_col1, t_col2, t_col3 = st.columns(3)
-        with t_col1:
-            st.subheader("1. Input (10m Resolution)")
-            st.image(bands_to_rgb(input_data), use_container_width=True, caption="Original Medium Resolution")
+        # Resize LR to match SR for the slider component
+        img_lr_resized = img_lr.resize(img_sr.size, Image.NEAREST)
 
-        with t_col2:
-            st.subheader("2. SpectraX (<4m Resolution)")
-            st.image(bands_to_rgb(sr_output), use_container_width=True, caption="Super-Resolved Output")
+        # Slider component
+        image_comparison(
+            img1=img_lr_resized,
+            img2=img_sr,
+            label1="Original (10m/px)",
+            label2="SpectraX Output (<4m/px)",
+            width=800,
+            starting_position=50,
+            show_labels=True,
+            make_responsive=True,
+            in_memory=True
+        )
 
-        with t_col3:
-            st.subheader("3. Reference Ground Truth")
-            if ref_data is not None:
-                st.image(bands_to_rgb(ref_data), use_container_width=True, caption="True High-Resolution Baseline")
+        st.divider()
+
+        # === 2. NTRO METRICS (Premium Layout) ===
+        st.header("3. NTRO Verification Dashboard")
+        
+        col_m1, col_m2 = st.columns([2, 1])
+        
+        with col_m1:
+            st.markdown("#### Anti-Hallucination Telemetry")
+            map1, map2 = st.columns(2)
+            with map1:
+                st.caption("Uncertainty Heatmap (MC-Dropout)")
+                fig1, ax1 = plt.subplots(figsize=(4, 4))
+                cax1 = ax1.imshow(uncertainty, cmap="viridis")
+                fig1.colorbar(cax1, ax=ax1, shrink=0.7)
+                ax1.axis("off")
+                fig1.patch.set_facecolor('#0E1117')
+                st.pyplot(fig1)
+                plt.close(fig1)
+
+            with map2:
+                st.caption("Hallucination Risk Map")
+                fig2, ax2 = plt.subplots(figsize=(4, 4))
+                cax2 = ax2.imshow(hallucination, cmap="magma")
+                fig2.colorbar(cax2, ax=ax2, shrink=0.7)
+                ax2.axis("off")
+                fig2.patch.set_facecolor('#0E1117')
+                st.pyplot(fig2)
+                plt.close(fig2)
+
+        with col_m2:
+            st.markdown("#### Quantitative Benchmarks")
+            
+            if consistency["passed"]:
+                st.success(f"✅ PASSED Anti-Hallucination\n\nConsistency: **{consistency['consistency_score']:.4f}**")
             else:
-                st.info("Ground truth reference image not provided for comparison.")
+                st.error(f"⚠️ FLAGGED for Hallucination\n\nConsistency: **{consistency['consistency_score']:.4f}**")
 
-        # === 2. ANTI-HALLUCINATION & UNCERTAINTY ===
-        st.header("3. Anti-Hallucination & Reliability Maps")
-        map1, map2 = st.columns(2)
-
-        with map1:
-            st.subheader("Pixel-Level Uncertainty Heatmap (MC-Dropout)")
-            fig, ax = plt.subplots()
-            cax = ax.imshow(uncertainty, cmap="viridis")
-            fig.colorbar(cax, ax=ax, label="Uncertainty Variance")
-            ax.axis("off")
-            st.pyplot(fig)
-            plt.close(fig)
-
-        with map2:
-            st.subheader("Hallucination Risk Map")
-            fig, ax = plt.subplots()
-            cax = ax.imshow(hallucination, cmap="magma")
-            fig.colorbar(cax, ax=ax, label="Fabrication Probability")
-            ax.axis("off")
-            st.pyplot(fig)
-            plt.close(fig)
-
-        # === 3. QUALITY & FIDELITY METRICS ===
-        st.header("4. Quantitative Validation (NTRO Benchmarks)")
-
-        if metrics is not None:
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("PSNR (dB)", f"{metrics['psnr']:.2f}", delta="Fidelity" if metrics['psnr'] > 28 else None)
-            m2.metric("SSIM", f"{metrics['ssim']:.4f}", delta="Structure" if metrics['ssim'] > 0.80 else None)
-            m3.metric("SAM (Degrees)", f"{metrics['sam']:.2f}°", delta="Spectral Angle" if metrics['sam'] < 5.0 else None, delta_color="inverse")
-            m4.metric("ERGAS", f"{metrics['ergas']:.2f}", delta="Global Error" if metrics['ergas'] < 3.5 else None, delta_color="inverse")
-
-            f1, f2, f3 = st.columns(3)
-            f1.metric("Geographic Edge F1", f"{metrics.get('edge_f1', 0.0):.4f}", help="Road and building boundary preservation.")
-            f2.metric("Hallucination Rate", f"{metrics.get('hallucination_rate', 0.0) * 100:.1f}%", help="Percentage of detected edges deemed ungrounded.")
-            f3.metric("Consistency Score", f"{consistency['consistency_score']:.4f}", delta="PASSED" if consistency['passed'] else "ALERT", delta_color="normal" if consistency['passed'] else "inverse")
-        else:
-            st.metric("Consistency Score", f"{consistency['consistency_score']:.4f}", delta="PASSED" if consistency['passed'] else "ALERT")
-
-        # === 4. CONSISTENCY CHECK VERDICT ===
-        st.header("5. Physics-Based Self-Consistency Check")
-        if consistency["passed"]:
-            st.success(f"✅ **PASS:** Self-consistency score ({consistency['consistency_score']:.4f}) exceeds threshold ({consistency_threshold}). The degraded output aligns with observations without geometric hallucination.")
-        else:
-            st.warning(f"⚠️ **FLAGGED:** Self-consistency score ({consistency['consistency_score']:.4f}) is below threshold ({consistency_threshold}).")
+            if metrics is not None:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <b>PSNR:</b> {metrics['psnr']:.2f} dB <br>
+                    <b>SSIM:</b> {metrics['ssim']:.4f} <br>
+                    <b>Edge F1:</b> {metrics.get('edge_f1', 0.0):.4f} <br>
+                    <b>Fabrication Rate:</b> {metrics.get('hallucination_rate', 0.0)*100:.1f}%
+                </div>
+                """, unsafe_allow_html=True)
+                if ref_data is not None:
+                    st.image(bands_to_rgb(ref_data), caption="Ground Truth Reference")
+            else:
+                st.info("Metrics require a ground truth reference image.")
 
 st.divider()
-st.caption("SpectraX SRM | SIH 2026 | Problem Statement 26142 | Sponsor: NTRO | GPU-Accelerated on RTX 5050")
+st.caption("SpectraX SRM | AI-Powered Satellite Enhancement | SIH 2026")
