@@ -1,0 +1,30 @@
+# SpectraX SRM — Dependencies (all free & open-source)
+
+# Core ML
+torch>=2.0
+torchvision>=0.15
+
+# Geospatial
+rasterio>=1.3
+numpy>=1.24
+GDAL>=3.6
+
+# Metrics & Image Processing
+scikit-image>=0.21
+torchmetrics>=1.0
+
+# UI (MVP)
+streamlit>=1.28
+streamlit-folium>=0.15
+folium>=0.14
+
+# Visualization
+matplotlib>=3.7
+pillow>=10.0
+
+# Utilities
+tqdm>=4.65
+pyyaml>=6.0
+
+# Testing
+pytest>=7.4
