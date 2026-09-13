@@ -11,23 +11,34 @@ import numpy as np
 
 def load_sentinel2_bands(filepath: str, bands: list[int] | None = None) -> np.ndarray:
     """
-    Load Sentinel-2 GeoTIFF and extract B/G/R/NIR bands.
-
-    Args:
-        filepath: Path to the GeoTIFF file.
-        bands: List of band indices to extract (default: [2, 3, 4, 8] = B/G/R/NIR).
-
-    Returns:
-        numpy array of shape (4, H, W) — 4 bands at 10m resolution.
+    Load Sentinel-2 GeoTIFF or standard images and extract bands.
+    Automatically pads 3-band RGB images to 4 bands (NIR=0) for compatibility.
     """
     import rasterio
+    import numpy as np
 
     if bands is None:
         bands = [2, 3, 4, 8]  # Blue, Green, Red, NIR for Sentinel-2
 
     with rasterio.open(filepath) as src:
-        # Read specified bands (rasterio is 1-indexed)
-        data = src.read(bands)
+        # Check if it's a standard RGB image (3 channels)
+        if src.count == 3:
+            data = src.read([1, 2, 3])
+            # Create a dummy NIR band (zeros)
+            dummy_nir = np.zeros_like(data[0:1, :, :])
+            data = np.concatenate([data, dummy_nir], axis=0)
+        else:
+            # For 4+ band images, ensure we only read available bands
+            valid_bands = [b for b in bands if b <= src.count]
+            if not valid_bands:
+                valid_bands = list(range(1, src.count + 1))
+            data = src.read(valid_bands)
+            
+            # Pad if less than 4 bands
+            if data.shape[0] < 4:
+                pad = np.zeros((4 - data.shape[0], data.shape[1], data.shape[2]), dtype=data.dtype)
+                data = np.concatenate([data, pad], axis=0)
+                
         profile = src.profile
 
     return data.astype(np.float32), profile
