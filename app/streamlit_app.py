@@ -17,9 +17,6 @@ import numpy as np
 import rasterio
 import streamlit as st
 import torch
-import folium
-from streamlit_folium import st_folium
-from streamlit_image_comparison import image_comparison
 from PIL import Image
 
 from src.api.inference import load_model, run_inference
@@ -37,7 +34,7 @@ st.set_page_config(
 st.markdown("""
     <style>
     .main { background-color: #0b0f19; }
-    h1, h2, h3 { color: #f8f9fa; font-weight: 600; }
+    h1, h2, h3, h4 { color: #f8f9fa; font-weight: 600; }
     .stAlert { border-radius: 8px; }
     .metric-card { 
         background: #161b22; padding: 15px; border-radius: 8px; 
@@ -58,6 +55,10 @@ st.markdown("""
     .stButton>button:hover {
         background-color: #2563eb;
         color: white;
+    }
+    /* Ensure images take full width of columns and can be expanded */
+    img {
+        border-radius: 8px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -85,16 +86,24 @@ def process_zip_file(zip_path: str, extract_dir: str):
     if len(extracted_files) < 4:
         return None
         
-    # Stack bands
     bands = []
     with rasterio.open(extracted_files[0]) as src:
-        meta = src.meta
         for i in range(4):
             with rasterio.open(extracted_files[i]) as b_src:
                 bands.append(b_src.read(1))
     
     stacked = np.stack(bands, axis=0).astype(np.float32)
     return stacked
+
+def load_large_demo_tile():
+    """Loads a massive 1024x1024 crop from the raw stacked Pune TIF to show full capabilities."""
+    path = "data/raw/pune_stacked.tif"
+    if not os.path.exists(path):
+        return None
+    with rasterio.open(path) as src:
+        # Read a 1000x1000 chunk from the middle of the image
+        data = src.read(window=((500, 1500), (500, 1500)))
+    return data
 
 def bands_to_rgb(img_bands: np.ndarray) -> Image.Image:
     """Converts (4, H, W) normalized array to a PIL Image (uint8 RGB) for display."""
@@ -121,39 +130,39 @@ with st.sidebar:
     selected_ckpt = st.selectbox("Model Weights", ckpt_options, index=0)
 
     st.subheader("Inference Settings")
-    scale_factor = st.selectbox("Resolution Upscale Factor", ["2x", "3x (Current Weights)", "4x"], index=1, help="Note: 2x and 4x require separate training weights. Defaulting to 3x.")
-    n_passes = st.slider("Uncertainty Passes", 2, 16, 4, 2)
+    scale_factor = st.selectbox("Resolution Upscale Factor", ["2x", "3x (Current Weights)", "4x"], index=1, help="2x and 4x require different weights. Defaulting to 3x.")
+    n_passes = st.slider("Uncertainty Passes", 2, 16, 4, 2, help="Higher = more accurate hallucination detection but slower.")
     consistency_threshold = st.slider("Consistency Threshold", 0.70, 0.99, 0.85, 0.01)
+    
+    st.divider()
+    st.info("SpectraX SRM uses SwinIR-Lite with global skip connections to ensure physics-based self-consistency.")
 
 
 # --- Main Header ---
 st.title("SpectraX — Super Resolution Engine")
-st.markdown("Transform blurry 10m/pixel satellite data into sharp, tactically actionable <4m/pixel imagery.")
+st.markdown("Transform massive 10m/pixel satellite landscapes into sharp, tactically actionable <4m/pixel imagery.")
 
 # --- Session State ---
 if "input_data" not in st.session_state:
     st.session_state.input_data = None
-    st.session_state.ref_data = None
     st.session_state.sample_name = ""
     st.session_state.ready_to_process = False
 
 # --- Data Input ---
 st.header("1. Data Ingestion")
 
-tab_demo, tab_zip, tab_upload, tab_map = st.tabs(["🚀 Quick Demo", "🗂️ Upload Copernicus ZIP", "🖼️ Upload Image", "🌍 Select on Map (API)"])
+tab_demo, tab_zip, tab_upload = st.tabs(["🚀 Massive Landscape Demo", "🗂️ Upload Copernicus ZIP", "🖼️ Upload Custom Image"])
 
 with tab_demo:
-    st.markdown("Test the engine instantly using pre-processed data from Pune (Patch 0000).")
-    if st.button("Load Demo Tile"):
-        lr_sample = "data/processed/lr/patch_0000.npy"
-        hr_sample = "data/processed/hr/patch_0000.npy"
-        if os.path.exists(lr_sample) and os.path.exists(hr_sample):
-            st.session_state.input_data = np.load(lr_sample)
-            st.session_state.ref_data = np.load(hr_sample)
-            st.session_state.sample_name = "Demo: Pune (Patch 0000)"
+    st.markdown("Test the engine on a **MASSIVE 1000x1000 pixel landscape** (100 square kilometers) from Pune. The AI will tile and process the entire region automatically.")
+    if st.button("Load Full Pune Landscape"):
+        data = load_large_demo_tile()
+        if data is not None:
+            st.session_state.input_data = normalize(data, method="percentile")
+            st.session_state.sample_name = "Full Pune Landscape (100 sq km)"
             st.session_state.ready_to_process = False
         else:
-            st.error("Demo files not found!")
+            st.error("Demo file 'pune_stacked.tif' not found!")
 
 with tab_zip:
     st.markdown("Upload a raw `.zip` file from the Copernicus Data Space. We extract and stack the exact spectral bands needed.")
@@ -169,14 +178,13 @@ with tab_zip:
                 if stacked_data is not None:
                     st.session_state.input_data = normalize(stacked_data, method="percentile")
                     st.session_state.sample_name = zip_file.name
-                    st.session_state.ref_data = None
                     st.session_state.ready_to_process = False
                     st.success("Successfully extracted and stacked 4 spectral bands! Ready to process.")
                 else:
                     st.error("Could not find standard B02, B03, B04, B08 bands in this zip.")
 
 with tab_upload:
-    st.markdown("Upload any standard image. SpectraX handles missing infrared bands automatically.")
+    st.markdown("Upload any standard image (TIFF, PNG, JPG). SpectraX handles missing infrared bands automatically.")
     up_file = st.file_uploader("Input Image", type=["tif", "tiff", "png", "jpg", "jpeg"])
     if up_file and st.button("Load Image"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(up_file.name).suffix) as tmp:
@@ -184,35 +192,19 @@ with tab_upload:
             data, _ = load_sentinel2_bands(tmp.name)
             st.session_state.input_data = normalize(data, method="percentile")
             st.session_state.sample_name = up_file.name
-            st.session_state.ref_data = None
             st.session_state.ready_to_process = False
             st.success("Image loaded! Ready to process.")
 
-with tab_map:
-    st.markdown("*(API Simulation)* Select an AOI directly from the globe to fetch Sentinel-2 data.")
-    m = folium.Map(location=[18.5204, 73.8567], zoom_start=10) # Centered on Pune
-    folium.Marker([18.5204, 73.8567], popup="Pune Tile AOI").add_to(m)
-    st_folium(m, height=300, width=800)
-    
-    if st.button("Fetch Data from Copernicus API"):
-        st.info("Initiating OAuth2 connection to Sentinel Hub API...")
-        time.sleep(1.5)
-        st.success("Data fetched successfully! (Simulated for Demo)")
-        lr_sample = "data/processed/lr/patch_0000.npy"
-        if os.path.exists(lr_sample):
-            st.session_state.input_data = np.load(lr_sample)
-            st.session_state.ref_data = np.load("data/processed/hr/patch_0000.npy")
-            st.session_state.sample_name = "API Fetch: Coordinates [18.52, 73.85]"
-            st.session_state.ready_to_process = False
 
 # --- Execution Workflow ---
 if st.session_state.input_data is not None:
     st.divider()
     st.subheader(f"Current Target: `{st.session_state.sample_name}`")
+    st.caption(f"Image Resolution: {st.session_state.input_data.shape[2]}x{st.session_state.input_data.shape[1]} pixels (Coverage: ~{(st.session_state.input_data.shape[2]*10/1000):.1f}km x {(st.session_state.input_data.shape[1]*10/1000):.1f}km)")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("▶️ RUN SUPER RESOLUTION PIPELINE", type="primary", use_container_width=True):
+        if st.button("▶️ RUN FULL SUPER RESOLUTION PIPELINE", type="primary", use_container_width=True):
             st.session_state.ready_to_process = True
 
     if st.session_state.ready_to_process:
@@ -220,35 +212,77 @@ if st.session_state.input_data is not None:
         if not os.path.exists(selected_ckpt):
             st.error("Model weights not found. Please train the model first.")
         else:
-            # Workflow Simulation Block
-            with st.status("Executing SpectraX Pipeline...", expanded=True) as status:
-                st.write("Loading Deep Learning Weights into VRAM...")
-                time.sleep(0.5)
-                model = get_model(selected_ckpt, device=device)
-                st.write("Normalizing spectral tensors...")
-                time.sleep(0.5)
-                st.write(f"Running SwinIR Inference on {device.upper()}...")
-                results = run_inference(
-                    model=model,
-                    input_image=st.session_state.input_data,
-                    reference_image=st.session_state.ref_data,
-                    n_uncertainty_passes=n_passes,
-                    scale_factor=3,
-                    patch_size=256,
-                    device=device,
-                )
-                st.write("Computing Anti-Hallucination maps...")
-                time.sleep(0.5)
-                status.update(label="Pipeline Complete!", state="complete", expanded=False)
+            # Display real-time progress for massive images
+            st.markdown("### AI Processing Pipeline")
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            def update_progress(current, total):
+                if total > 0:
+                    pct = int((current / total) * 100)
+                    progress_bar.progress(pct)
+                    status_text.text(f"Processing chunk {current} of {total} via RTX GPU...")
+
+            model = get_model(selected_ckpt, device=device)
+            
+            start_time = time.time()
+            results = run_inference(
+                model=model,
+                input_image=st.session_state.input_data,
+                reference_image=None,
+                n_uncertainty_passes=n_passes,
+                scale_factor=3,
+                patch_size=256,
+                device=device,
+                progress_callback=update_progress
+            )
+            elapsed = time.time() - start_time
+            
+            progress_bar.progress(100)
+            status_text.success(f"✅ Full landscape processed successfully in {elapsed:.1f} seconds!")
 
             sr_output = results["sr_output"]
             uncertainty = results["uncertainty_map"]
             hallucination = results["hallucination_map"]
             consistency = results["consistency"]
-            metrics = results["metrics"]
 
-            # === 1. NTRO METRICS (Premium Layout) ===
-            st.header("NTRO Verification Dashboard")
+            st.divider()
+
+            # === 1. MASSIVE VISUALIZATION (Full Width) ===
+            st.header("2. High-Resolution Output Viewer")
+            st.markdown("Hover over the image and click the **Arrows Icon ⤢ in the top right** to view in **Full Screen Mode**.")
+            
+            col_img1, col_img2 = st.columns(2)
+            
+            img_lr = bands_to_rgb(st.session_state.input_data)
+            img_sr = bands_to_rgb(sr_output)
+
+            with col_img1:
+                st.subheader("Original (10m/px)")
+                st.image(img_lr, use_container_width=True)
+                
+            with col_img2:
+                st.subheader("SpectraX Output (<4m/px)")
+                st.image(img_sr, use_container_width=True)
+                
+                # Add download button for the massive enhanced image
+                import io
+                buf = io.BytesIO()
+                img_sr.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+                
+                st.download_button(
+                    label="💾 Download High-Resolution Result (PNG)",
+                    data=byte_im,
+                    file_name="spectrax_enhanced_output.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+
+            st.divider()
+
+            # === 2. NTRO METRICS (Premium Layout) ===
+            st.header("3. NTRO Verification Dashboard")
             
             col_m1, col_m2 = st.columns([2, 1])
             
@@ -282,40 +316,8 @@ if st.session_state.input_data is not None:
                     st.success(f"✅ PASSED Anti-Hallucination\n\nConsistency: **{consistency['consistency_score']:.4f}**")
                 else:
                     st.error(f"⚠️ FLAGGED for Hallucination\n\nConsistency: **{consistency['consistency_score']:.4f}**")
-
-                if metrics is not None:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <b>PSNR:</b> {metrics['psnr']:.2f} dB <br>
-                        <b>SSIM:</b> {metrics['ssim']:.4f} <br>
-                        <b>Edge F1:</b> {metrics.get('edge_f1', 0.0):.4f} <br>
-                        <b>Fabrication Rate:</b> {metrics.get('hallucination_rate', 0.0)*100:.1f}%
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.info("Detailed metrics require a ground truth reference image.")
-
-            st.divider()
-
-            # === 2. INTERACTIVE SWIPE SLIDER ===
-            with st.expander("🔍 Interactive Enhancement Viewer (Swipe to Compare)", expanded=False):
-                st.caption("Drag the slider left and right to compare the original 10m resolution to SpectraX's <4m resolution.")
                 
-                img_lr = bands_to_rgb(st.session_state.input_data)
-                img_sr = bands_to_rgb(sr_output)
-                img_lr_resized = img_lr.resize(img_sr.size, Image.NEAREST)
-
-                image_comparison(
-                    img1=img_lr_resized,
-                    img2=img_sr,
-                    label1="Original (10m/px)",
-                    label2="SpectraX Output (<4m/px)",
-                    width=850,
-                    starting_position=50,
-                    show_labels=True,
-                    make_responsive=True,
-                    in_memory=True
-                )
+                st.info("Full fidelity metrics (PSNR, SSIM, SAM, ERGAS) are omitted because a ground-truth reference for this massive area was not provided.")
 
 st.divider()
 st.caption("SpectraX SRM | AI-Powered Satellite Enhancement | SIH 2026")

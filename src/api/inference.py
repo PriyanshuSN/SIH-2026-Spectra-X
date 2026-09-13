@@ -56,6 +56,7 @@ def run_inference(
     patch_size: int = 256,
     overlap: int = 16,
     device: str = "cpu",
+    progress_callback=None,
 ) -> dict:
     """
     Run the complete SpectraX inference pipeline.
@@ -86,8 +87,12 @@ def run_inference(
 
     sr_patches = []
     uncertainty_patches = []
+    total_patches = len(patches)
 
-    for p in patches:
+    for i, p in enumerate(patches):
+        if progress_callback is not None:
+            progress_callback(i, total_patches)
+            
         patch_tensor = torch.from_numpy(p["patch"]).unsqueeze(0).float()  # (1, 4, H, W)
 
         # MC-Dropout inference (get SR + uncertainty for each patch)
@@ -97,6 +102,9 @@ def run_inference(
 
         sr_patches.append({**p, "patch": sr_patch})
         uncertainty_patches.append({**p, "patch": unc_patch[np.newaxis, ...]})  # (1, H, W)
+        
+    if progress_callback is not None:
+        progress_callback(total_patches, total_patches)
 
     # Reassemble patches
     sr_output = untile_image(
