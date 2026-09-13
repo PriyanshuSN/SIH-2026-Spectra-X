@@ -150,7 +150,7 @@ def train(
             },
             ckpt_path,
         )
-        print(f"  → Saved checkpoint: {ckpt_path}")
+        print(f"  -> Saved checkpoint: {ckpt_path}")
 
     print("Training complete!")
     return model

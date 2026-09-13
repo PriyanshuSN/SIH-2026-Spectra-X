@@ -277,13 +277,22 @@ class SwinIRLite(nn.Module):
         # Residual connection
         feat = self.conv_after_body(feat) + shallow
 
-        # Upsample
+        # Global bicubic base residual
+        bicubic_base = F.interpolate(
+            x[:, :, :H, :W],
+            scale_factor=self.scale_factor,
+            mode="bicubic",
+            align_corners=False,
+        )
+
+        # Upsample residual
         out = self.upsample(feat)
 
         # Remove padding
         out = out[:, :, : H * self.scale_factor, : W * self.scale_factor]
 
-        return out
+        # Combine learned residual with bicubic base
+        return out + bicubic_base
 
 
 # ─── Helper functions ───────────────────────────────────────────────────────

@@ -68,7 +68,7 @@ with st.sidebar:
 
 
 def bands_to_rgb(img_bands: np.ndarray) -> np.ndarray:
-    """Converts (4, H, W) or (3, H, W) normalized satellite data to (H, W, 3) RGB."""
+    """Converts (4, H, W) or (3, H, W) normalized satellite data to (H, W, 3) uint8 RGB."""
     # Sentinel-2 bands order in our pipeline: 0: Blue, 1: Green, 2: Red, 3: NIR
     if img_bands.shape[0] >= 3:
         r = img_bands[2]
@@ -78,9 +78,11 @@ def bands_to_rgb(img_bands: np.ndarray) -> np.ndarray:
     else:
         rgb = np.repeat(img_bands[0:1], 3, axis=0).transpose(1, 2, 0)
 
-    # Normalize to [0, 1] for display
-    rgb = np.clip(rgb, 0.0, 1.0)
-    return rgb
+    # 2% - 98% percentile contrast stretch for natural satellite visualization
+    p2, p98 = np.percentile(rgb, (2, 98))
+    rgb_stretched = (rgb - p2) / (p98 - p2 + 1e-8)
+    rgb_stretched = np.clip(rgb_stretched, 0.0, 1.0)
+    return (rgb_stretched * 255).astype(np.uint8)
 
 
 # --- Data Selection ---
