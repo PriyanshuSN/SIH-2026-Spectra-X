@@ -15,7 +15,16 @@ def run_training_loop():
     # Paths
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     train_script = os.path.join(project_dir, "src", "model", "train.py")
-    data_dir = os.path.join(project_dir, "data", "processed")
+    
+    # Use bulk data if available, otherwise fallback to standard processed data
+    bulk_dir = os.path.join(project_dir, "data", "processed_bulk")
+    if os.path.exists(bulk_dir) and len(os.listdir(os.path.join(bulk_dir, "lr"))) > 0:
+        data_dir = bulk_dir
+        print("🌍 Bulk Dataset detected! Training on massive dataset.")
+    else:
+        data_dir = os.path.join(project_dir, "data", "processed")
+        print("Using standard dataset (Pune). Add files to data/raw_bulk/ and run prepare_bulk_dataset.py to scale up.")
+        
     python_exe = os.path.join(project_dir, "venv", "Scripts", "python.exe")
     
     print(f"Data Directory: {data_dir}")

@@ -120,13 +120,10 @@ with st.sidebar:
     ckpt_options = [str(p) for p in ckpt_files] if ckpt_files else ["checkpoints/swinir_epoch025.pth"]
     selected_ckpt = st.selectbox("Model Weights", ckpt_options, index=0)
 
-    st.divider()
     st.subheader("Inference Settings")
-    n_passes = st.slider("Uncertainty Passes", 2, 16, 4, 2, help="Higher = more accurate hallucination detection but slower.")
+    scale_factor = st.selectbox("Resolution Upscale Factor", ["2x", "3x (Current Weights)", "4x"], index=1, help="Note: 2x and 4x require separate training weights. Defaulting to 3x.")
+    n_passes = st.slider("Uncertainty Passes", 2, 16, 4, 2)
     consistency_threshold = st.slider("Consistency Threshold", 0.70, 0.99, 0.85, 0.01)
-    
-    st.divider()
-    st.info("SpectraX SRM uses SwinIR-Lite with global skip connections to ensure physics-based self-consistency.")
 
 
 # --- Main Header ---
@@ -250,29 +247,8 @@ if st.session_state.input_data is not None:
             consistency = results["consistency"]
             metrics = results["metrics"]
 
-            # === 1. INTERACTIVE SWIPE SLIDER ===
-            st.header("2. Interactive Enhancement Viewer")
-            
-            img_lr = bands_to_rgb(st.session_state.input_data)
-            img_sr = bands_to_rgb(sr_output)
-            img_lr_resized = img_lr.resize(img_sr.size, Image.NEAREST)
-
-            image_comparison(
-                img1=img_lr_resized,
-                img2=img_sr,
-                label1="Original (10m/px)",
-                label2="SpectraX Output (<4m/px)",
-                width=850,
-                starting_position=50,
-                show_labels=True,
-                make_responsive=True,
-                in_memory=True
-            )
-
-            st.divider()
-
-            # === 2. NTRO METRICS ===
-            st.header("3. NTRO Verification Dashboard")
+            # === 1. NTRO METRICS (Premium Layout) ===
+            st.header("NTRO Verification Dashboard")
             
             col_m1, col_m2 = st.columns([2, 1])
             
@@ -318,6 +294,28 @@ if st.session_state.input_data is not None:
                     """, unsafe_allow_html=True)
                 else:
                     st.info("Detailed metrics require a ground truth reference image.")
+
+            st.divider()
+
+            # === 2. INTERACTIVE SWIPE SLIDER ===
+            with st.expander("🔍 Interactive Enhancement Viewer (Swipe to Compare)", expanded=False):
+                st.caption("Drag the slider left and right to compare the original 10m resolution to SpectraX's <4m resolution.")
+                
+                img_lr = bands_to_rgb(st.session_state.input_data)
+                img_sr = bands_to_rgb(sr_output)
+                img_lr_resized = img_lr.resize(img_sr.size, Image.NEAREST)
+
+                image_comparison(
+                    img1=img_lr_resized,
+                    img2=img_sr,
+                    label1="Original (10m/px)",
+                    label2="SpectraX Output (<4m/px)",
+                    width=850,
+                    starting_position=50,
+                    show_labels=True,
+                    make_responsive=True,
+                    in_memory=True
+                )
 
 st.divider()
 st.caption("SpectraX SRM | AI-Powered Satellite Enhancement | SIH 2026")
