@@ -18,7 +18,7 @@ import torch
 from src.consistency.checker import consistency_check
 from src.ingestion.preprocess import normalize
 from src.ingestion.tiler import tile_image, untile_image
-from src.metrics.compute import compute_all_metrics
+from src.metrics.compute import compute_all_metrics, compute_hallucination_map
 from src.model.swinir import build_model
 from src.uncertainty.mc_dropout import mc_dropout_inference
 
@@ -118,6 +118,11 @@ def run_inference(
         sr_output, normalized, scale_factor=scale_factor
     )
 
+    # Hallucination risk map
+    hallucination_map = compute_hallucination_map(
+        sr_output, normalized, scale_factor=scale_factor
+    )
+
     # Quality metrics (only if reference is available)
     metrics = None
     if reference_image is not None:
@@ -135,6 +140,7 @@ def run_inference(
     return {
         "sr_output": sr_output,
         "uncertainty_map": uncertainty_map,
+        "hallucination_map": hallucination_map,
         "consistency": consistency,
         "metrics": metrics,
     }
