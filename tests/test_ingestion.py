@@ -5,9 +5,9 @@ Tests for the data ingestion module.
 import numpy as np
 import pytest
 
-from src.ingestion.preprocess import normalize, denormalize
+from src.ingestion.degradation import create_training_pair, degrade
+from src.ingestion.preprocess import normalize
 from src.ingestion.tiler import tile_image, untile_image
-from src.ingestion.degradation import degrade, create_training_pair
 
 
 class TestNormalization:

@@ -3,7 +3,6 @@ Tests for the SwinIR-Lite model.
 """
 
 import torch
-import pytest
 
 from src.model.swinir import SwinIRLite, build_model
 

@@ -16,10 +16,9 @@ Input: (B, 4, H, W) — 4 bands (B/G/R/NIR)
 Output: (B, 4, H*scale, W*scale) — upscaled 4 bands
 """
 
-import math
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class MLP(nn.Module):
@@ -118,7 +117,7 @@ class SwinTransformerBlock(nn.Module):
         self.mlp = MLP(dim, int(dim * mlp_ratio), dropout)
 
     def forward(self, x, H, W):
-        B, L, C = x.shape
+        B, _L, C = x.shape
         shortcut = x
 
         x = self.norm1(x)
@@ -256,7 +255,7 @@ class SwinIRLite(nn.Module):
         Returns:
             Super-resolved output of shape (B, 4, H*scale, W*scale).
         """
-        B, C, H, W = x.shape
+        B, _C, H, W = x.shape
 
         # Pad to be divisible by window_size
         pad_h = (self.window_size - H % self.window_size) % self.window_size
@@ -306,7 +305,7 @@ def _window_reverse(windows: torch.Tensor, window_size: int, H: int, W: int) -> 
     return x
 
 
-def build_model(config: dict = None) -> SwinIRLite:
+def build_model(config: dict | None = None) -> SwinIRLite:
     """
     Build model with optional config override.
 

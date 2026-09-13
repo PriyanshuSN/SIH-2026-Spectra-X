@@ -9,7 +9,7 @@ Usage:
 import numpy as np
 
 
-def load_sentinel2_bands(filepath: str, bands: list[int] = None) -> np.ndarray:
+def load_sentinel2_bands(filepath: str, bands: list[int] | None = None) -> np.ndarray:
     """
     Load Sentinel-2 GeoTIFF and extract B/G/R/NIR bands.
 

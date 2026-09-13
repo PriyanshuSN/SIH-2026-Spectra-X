@@ -3,14 +3,13 @@ Tests for the metrics module.
 """
 
 import numpy as np
-import pytest
 
 from src.metrics.compute import (
-    compute_psnr,
-    compute_ssim,
-    compute_sam,
-    compute_ergas,
     compute_all_metrics,
+    compute_ergas,
+    compute_psnr,
+    compute_sam,
+    compute_ssim,
 )
 
 

@@ -15,17 +15,17 @@ The ML core is UI-agnostic by design — swap the frontend without touching this
 import numpy as np
 import torch
 
-from src.model.swinir import build_model
+from src.consistency.checker import consistency_check
 from src.ingestion.preprocess import normalize
 from src.ingestion.tiler import tile_image, untile_image
-from src.uncertainty.mc_dropout import mc_dropout_inference
-from src.consistency.checker import consistency_check
 from src.metrics.compute import compute_all_metrics
+from src.model.swinir import build_model
+from src.uncertainty.mc_dropout import mc_dropout_inference
 
 
 def load_model(
     checkpoint_path: str,
-    model_config: dict = None,
+    model_config: dict | None = None,
     device: str = "cpu",
 ) -> torch.nn.Module:
     """

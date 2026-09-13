@@ -6,7 +6,6 @@ Usage:
     download_sentinel2_tile(bbox, date_range, output_dir)
 """
 
-import os
 from pathlib import Path
 
 

@@ -85,7 +85,7 @@ def create_training_pair(
     """
     lr = degrade(image, scale_factor, blur_sigma, noise_std)
     # Crop HR to be compatible with the degraded size
-    C, H, W = image.shape
+    _C, H, W = image.shape
     new_H, new_W = H // scale_factor * scale_factor, W // scale_factor * scale_factor
     hr = image[:, :new_H, :new_W]
 

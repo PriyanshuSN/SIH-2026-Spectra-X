@@ -8,15 +8,15 @@ Supports:
   - Logging to CSV
 """
 
-import os
 import csv
+import os
 import time
 from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
 
 from src.model.swinir import build_model
 
@@ -54,7 +54,7 @@ def train(
     batch_size: int = 4,
     lr: float = 2e-4,
     device: str = "auto",
-    model_config: dict = None,
+    model_config: dict | None = None,
 ):
     """
     Train the SwinIR-Lite model.

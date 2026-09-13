@@ -14,6 +14,8 @@ they measure spectral fidelity, not just visual similarity.
 import numpy as np
 from skimage.metrics import (
     peak_signal_noise_ratio as _psnr,
+)
+from skimage.metrics import (
     structural_similarity as _ssim,
 )
 
