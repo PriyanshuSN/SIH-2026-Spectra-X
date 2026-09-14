@@ -79,10 +79,31 @@ def train(
 
     # Model
     model = build_model(model_config).to(device)
+    start_epoch = 1
+
+    # Optimizer & Loss
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    criterion = nn.L1Loss()
+
     if resume_from and os.path.exists(resume_from):
-        print(f"🔄 Loading pretrained weights from: {resume_from}")
-        checkpoint = torch.load(resume_from, map_location=device, weights_only=True)
+        print(f"🔄 Resuming seamlessly from checkpoint: {resume_from}")
+        checkpoint = torch.load(resume_from, map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
+        if "optimizer_state_dict" in checkpoint:
+            try:
+                optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            except Exception as e:
+                print(f"Note: Could not restore optimizer state: {e}")
+        if "scheduler_state_dict" in checkpoint:
+            try:
+                scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+            except Exception as e:
+                print(f"Note: Could not restore scheduler state: {e}")
+        if "epoch" in checkpoint:
+            start_epoch = checkpoint["epoch"] + 1
+            print(f"📍 Resuming directly from Epoch {start_epoch} up to Epoch {epochs}")
+
     param_count = sum(p.numel() for p in model.parameters()) / 1e6
     print(f"Model parameters: {param_count:.2f}M")
 
@@ -92,22 +113,19 @@ def train(
         dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True
     )
 
-    # Optimizer & Loss
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    criterion = nn.L1Loss()
-
     # Mixed precision
     scaler = torch.amp.GradScaler("cuda", enabled=(device == "cuda"))
 
-    # Training log
+    # Training log (append if resuming, create if fresh)
     log_path = os.path.join(output_dir, "training_log.csv")
-    with open(log_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["epoch", "loss", "lr", "time_s"])
+    file_exists = os.path.exists(log_path)
+    if start_epoch == 1 or not file_exists:
+        with open(log_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["epoch", "loss", "lr", "time_s"])
 
     # Training loop
-    for epoch in range(1, epochs + 1):
+    for epoch in range(start_epoch, epochs + 1):
         model.train()
         epoch_loss = 0.0
         start = time.time()
