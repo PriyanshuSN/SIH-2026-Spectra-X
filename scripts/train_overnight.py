@@ -31,16 +31,31 @@ def run_training_loop():
     print(f"Using Python: {python_exe}\n")
     
     # Configure training run
-    epochs = 600      # 600 epochs at 37s/epoch = ~6 hours of training
-    batch_size = 16   # Max out the 8GB RTX 5050 VRAM for faster training
-    
+    import argparse
+    parser = argparse.ArgumentParser(description="Automated Overnight Training")
+    parser.add_argument("--epochs", type=int, default=300, help="Number of epochs to train")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for training")
+    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate (0.0001 recommended for fine-tuning)")
+    parser.add_argument("--output_dir", type=str, default="checkpoints_bulk", help="Directory to save new checkpoints")
+    parser.add_argument("--resume", type=str, default="checkpoints/swinir_epoch342.pth", help="Checkpoint to warm-start from")
+    parser.add_argument("--scratch", action="store_true", help="Train from scratch without loading prior weights")
+    args = parser.parse_args()
+
     cmd = [
         python_exe, train_script,
         "--data_dir", data_dir,
-        "--epochs", str(epochs),
-        "--batch_size", str(batch_size),
-        "--lr", "0.0002"
+        "--output_dir", args.output_dir,
+        "--epochs", str(args.epochs),
+        "--batch_size", str(args.batch_size),
+        "--lr", str(args.lr),
     ]
+
+    resume_target = None if args.scratch else args.resume
+    if resume_target and os.path.exists(os.path.join(project_dir, resume_target)):
+        cmd.extend(["--resume_from", os.path.join(project_dir, resume_target)])
+        print(f"🎯 Warm-starting / fine-tuning from: {resume_target}")
+    elif args.scratch:
+        print("🌱 Training fresh from scratch (no prior weights loaded).")
     
     print(f"Executing: {' '.join(cmd)}")
     print("Press Ctrl+C to stop the training at any time. Checkpoints save automatically.")
@@ -62,7 +77,7 @@ def run_training_loop():
     end_time = time.time()
     duration = (end_time - start_time) / 3600
     print(f"\n✅ Training session ended. Duration: {duration:.2f} hours.")
-    print("Your latest model weights are in the 'checkpoints/' folder!")
+    print(f"Your latest model weights are in the '{args.output_dir}/' folder!")
 
 if __name__ == "__main__":
     run_training_loop()

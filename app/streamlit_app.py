@@ -125,8 +125,13 @@ with st.sidebar:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     st.success(f"**Hardware:** `{device.upper()}` " + (f"({torch.cuda.get_device_name(0)})" if device == "cuda" else ""))
 
-    ckpt_files = sorted(Path("checkpoints").glob("*.pth"), key=os.path.getmtime, reverse=True)
-    ckpt_options = [str(p) for p in ckpt_files] if ckpt_files else ["checkpoints/swinir_epoch025.pth"]
+    ckpt_dirs = [Path("checkpoints"), Path("checkpoints_bulk")]
+    ckpt_files = []
+    for cd in ckpt_dirs:
+        if cd.exists():
+            ckpt_files.extend(cd.glob("*.pth"))
+    ckpt_files = sorted(ckpt_files, key=os.path.getmtime, reverse=True)
+    ckpt_options = [str(p) for p in ckpt_files] if ckpt_files else ["checkpoints/swinir_epoch342.pth"]
     selected_ckpt = st.selectbox("Model Weights", ckpt_options, index=0)
 
     st.subheader("Inference Settings")
@@ -248,61 +253,66 @@ if st.session_state.input_data is not None:
 
             st.divider()
 
-            # === 1. MASSIVE VISUALIZATION (Full Width) ===
+            # === 1. MASSIVE VISUALIZATION ===
             st.header("2. High-Resolution Output Viewer")
-            st.markdown("Hover over the image and click the **Arrows Icon ⤢ in the top right** to view in **Full Screen Mode**.")
-            
-            col_img1, col_img2 = st.columns(2)
             
             img_lr = bands_to_rgb(st.session_state.input_data)
             img_sr = bands_to_rgb(sr_output)
 
-            with col_img1:
-                st.subheader("Original (10m/px)")
-                st.image(img_lr, use_container_width=True)
+            # Prepare download buffer
+            import io
+            buf = io.BytesIO()
+            img_sr.save(buf, format="PNG")
+            byte_im = buf.getvalue()
+            
+            view_tab_main, view_tab_zoom = st.tabs([
+                "🖼️ Full Landscape Comparison",
+                "🔍 Raw 1:1 Pixel Verification"
+            ])
+            
+            with view_tab_main:
+                st.markdown("Hover over either image and click **Arrows ⤢ in the top right** for **Full Screen Mode**. You can zoom in freely.")
+                col_img1, col_img2 = st.columns(2)
                 
-            with col_img2:
-                st.subheader("SpectraX Output (<4m/px)")
-                st.image(img_sr, use_container_width=True)
-                
-                # Add download button for the massive enhanced image
-                import io
-                buf = io.BytesIO()
-                img_sr.save(buf, format="PNG")
-                byte_im = buf.getvalue()
-                
-                st.download_button(
-                    label="💾 Download High-Resolution Result (PNG)",
-                    data=byte_im,
-                    file_name="spectrax_enhanced_output.png",
-                    mime="image/png",
-                    use_container_width=True
-                )
+                with col_img1:
+                    st.subheader("Original (10m/px)")
+                    st.image(img_lr, use_container_width=True)
+                    
+                with col_img2:
+                    st.subheader("SpectraX Output (<4m/px)")
+                    st.image(img_sr, use_container_width=True)
+                    
+                    st.download_button(
+                        label="💾 Download Enhanced Output (PNG)",
+                        data=byte_im,
+                        file_name="spectrax_enhanced_output.png",
+                        mime="image/png",
+                        use_container_width=True,
+                        key="dl_btn_side"
+                    )
 
-            st.divider()
-            
-            # === RAW PIXEL ZOOM COMPARISON ===
-            st.header("Raw Pixel Comparison (1:1 Scale)")
-            st.markdown("Because web browsers automatically shrink massive images to fit the screen, it can look like the resolution didn't change. Here is a raw 1:1 pixel crop from the exact center of both files to prove the physical resolution multiplier.")
-            
-            # Crop the center 150x150 of the LR image
-            w, h = img_lr.size
-            cx, cy = w // 2, h // 2
-            crop_lr = img_lr.crop((cx - 75, cy - 75, cx + 75, cy + 75))
-            
-            # Crop the corresponding center 450x450 of the SR image (3x scale)
-            sw, sh = img_sr.size
-            scx, scy = sw // 2, sh // 2
-            crop_sr = img_sr.crop((scx - 225, scy - 225, scx + 225, scy + 225))
-            
-            col_z1, col_z2 = st.columns(2)
-            with col_z1:
-                st.caption(f"Original Crop (150x150 pixels)")
-                # use_container_width=False forces it to show raw pixels
-                st.image(crop_lr, use_container_width=False)
-            with col_z2:
-                st.caption(f"SpectraX Crop (450x450 pixels) — Physically 3x larger")
-                st.image(crop_sr, use_container_width=False)
+            with view_tab_zoom:
+                st.subheader("Raw Pixel Verification (1:1 Physical Scale)")
+                st.markdown("Web browsers often shrink massive images to fit your monitor, making them look identical. To prove the true physical resolution enhancement, here is a raw **1:1 pixel crop** from the exact center of the map. No shrinking, no downsampling.")
+                
+                # Center crops
+                w, h = img_lr.size
+                cx, cy = w // 2, h // 2
+                # Take a 150x150 chunk from original
+                crop_lr = img_lr.crop((cx - 75, cy - 75, cx + 75, cy + 75))
+                
+                # Take the corresponding 450x450 chunk from SR
+                sw, sh = img_sr.size
+                scx, scy = sw // 2, sh // 2
+                crop_sr = img_sr.crop((scx - 225, scy - 225, scx + 225, scy + 225))
+                
+                col_z1, col_z2 = st.columns(2)
+                with col_z1:
+                    st.markdown("**Original Crop (150x150 pixels)**")
+                    st.image(crop_lr, use_container_width=False)
+                with col_z2:
+                    st.markdown("**SpectraX Crop (450x450 pixels) — Physically 3x larger**")
+                    st.image(crop_sr, use_container_width=False)
 
             st.divider()
 

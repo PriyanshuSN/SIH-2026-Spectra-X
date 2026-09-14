@@ -55,6 +55,7 @@ def train(
     lr: float = 2e-4,
     device: str = "auto",
     model_config: dict | None = None,
+    resume_from: str | None = None,
 ):
     """
     Train the SwinIR-Lite model.
@@ -67,6 +68,7 @@ def train(
         lr: Learning rate.
         device: 'cuda', 'cpu', or 'auto' (auto-detect).
         model_config: Optional model config overrides.
+        resume_from: Optional path to .pth checkpoint to resume/fine-tune from.
     """
     # Setup
     if device == "auto":
@@ -77,6 +79,10 @@ def train(
 
     # Model
     model = build_model(model_config).to(device)
+    if resume_from and os.path.exists(resume_from):
+        print(f"🔄 Loading pretrained weights from: {resume_from}")
+        checkpoint = torch.load(resume_from, map_location=device, weights_only=True)
+        model.load_state_dict(checkpoint["model_state_dict"])
     param_count = sum(p.numel() for p in model.parameters()) / 1e6
     print(f"Model parameters: {param_count:.2f}M")
 
@@ -171,6 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--resume_from", type=str, default=None, help="Path to pretrained .pth checkpoint")
     args = parser.parse_args()
 
     train(
@@ -179,4 +186,5 @@ if __name__ == "__main__":
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.lr,
+        resume_from=args.resume_from,
     )
